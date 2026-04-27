@@ -1,36 +1,43 @@
 import { Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { buildReport } from '../services/reportService';
 import { aggregateThemes } from '../services/themeService';
 import { buildPdfBuffer } from '../utils/pdfExport';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma';
 
 export async function getReport(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const report = await buildReport(req.params['projectId']!, req.userId!);
+    const projectId = req.params.projectId as string;
+    const report = await buildReport(projectId, req.userId!);
     res.json({ success: true, data: report });
   } catch (err) { next(err); }
 }
 
 export async function getSentiment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const projectId = req.params['projectId']!;
+    const projectId = req.params.projectId as string;
     const project = await prisma.project.findFirst({ where: { id: projectId, userId: req.userId } });
     if (!project) { res.status(404).json({ success: false, error: 'Project not found' }); return; }
 
-    const rows = await prisma.analysis.groupBy({
-      by: ['sentiment'],
+    const rows = await prisma.analysis.findMany({
       where: { feedback: { projectId } },
-      _count: { sentiment: true },
-      _avg: { confidence: true },
+      select: { sentiment: true, confidence: true },
     });
 
-    const breakdown = rows.reduce<Record<string, { count: number; avgConfidence: number }>>((acc, r) => {
-      acc[r.sentiment] = { count: r._count.sentiment, avgConfidence: parseFloat((r._avg.confidence ?? 0).toFixed(3)) };
-      return acc;
-    }, {});
+    const breakdown: Record<string, { count: number; avgConfidence: number }> = {};
+    const countMap: Record<string, number> = {};
+    const confSum: Record<string, number> = {};
+
+    for (const r of rows) {
+      countMap[r.sentiment] = (countMap[r.sentiment] ?? 0) + 1;
+      confSum[r.sentiment] = (confSum[r.sentiment] ?? 0) + r.confidence;
+    }
+    for (const sentiment of Object.keys(countMap)) {
+      breakdown[sentiment] = {
+        count: countMap[sentiment]!,
+        avgConfidence: parseFloat(((confSum[sentiment] ?? 0) / countMap[sentiment]!).toFixed(3)),
+      };
+    }
 
     res.json({ success: true, data: { projectId, breakdown } });
   } catch (err) { next(err); }
@@ -38,7 +45,7 @@ export async function getSentiment(req: AuthRequest, res: Response, next: NextFu
 
 export async function getThemes(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const projectId = req.params['projectId']!;
+    const projectId = req.params.projectId as string;
     const project = await prisma.project.findFirst({ where: { id: projectId, userId: req.userId } });
     if (!project) { res.status(404).json({ success: false, error: 'Project not found' }); return; }
 
@@ -54,11 +61,12 @@ export async function getThemes(req: AuthRequest, res: Response, next: NextFunct
 
 export async function exportReport(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const format = (req.query['format'] as string) || 'json';
-    const report = await buildReport(req.params['projectId']!, req.userId!);
+    const projectId = req.params.projectId as string;
+    const format = Array.isArray(req.query['format']) ? req.query['format'][0] : (req.query['format'] as string | undefined) ?? 'json';
+    const report = await buildReport(projectId, req.userId!);
 
     if (format === 'pdf') {
-      const project = await prisma.project.findUnique({ where: { id: req.params['projectId'] } });
+      const project = await prisma.project.findUnique({ where: { id: projectId } });
       const buf = await buildPdfBuffer({
         projectName: project?.name ?? 'Unknown',
         totalFeedback: report.totalFeedback,
@@ -70,7 +78,7 @@ export async function exportReport(req: AuthRequest, res: Response, next: NextFu
         generatedAt: new Date().toISOString(),
       });
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="report-${req.params['projectId']}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="report-${projectId}.pdf"`);
       res.send(buf);
     } else {
       res.json({ success: true, data: report });

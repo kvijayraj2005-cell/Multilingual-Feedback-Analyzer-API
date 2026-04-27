@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
 import { aggregateThemes } from './themeService';
-import { sentimentScore, averageSentimentLabel } from './sentimentService';
-
-const prisma = new PrismaClient();
+import { sentimentScore } from './sentimentService';
+import { prisma } from '../lib/prisma';
 
 export interface AggregateReport {
   projectId: string;

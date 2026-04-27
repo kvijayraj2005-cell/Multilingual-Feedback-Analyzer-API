@@ -1,12 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { RegisterSchema, LoginSchema } from '../validators/authValidator';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma';
 
 export async function register(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

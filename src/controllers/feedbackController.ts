@@ -1,12 +1,10 @@
 import { Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { SubmitFeedbackSchema, BatchFeedbackSchema, CreateProjectSchema } from '../validators/feedbackValidator';
 import { analyzeText } from '../services/geminiService';
 import { parseUpload } from '../services/uploadService';
 import { logger } from '../utils/logger';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma';
 
 async function runAnalysis(feedbackId: string, text: string): Promise<void> {
   const result = await analyzeText(text);
