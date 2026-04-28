@@ -7,7 +7,5 @@ type AsyncHandler<Req extends Request = Request> = (
 ) => Promise<void>;
 
 export function catchAsync<Req extends Request = Request>(fn: AsyncHandler<Req>): AsyncHandler<Req> {
-  return (req, res, next) => {
-    fn(req, res, next).catch(next);
-  };
+  return (req, res, next): Promise<void> => fn(req, res, next).catch(next);
 }
