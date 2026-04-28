@@ -9,25 +9,30 @@ import { prisma } from '../lib/prisma';
 
 async function runAnalysis(feedbackId: string, text: string): Promise<void> {
   const result = await analyzeText(text);
-  await prisma.analysis.create({
-    data: {
-      feedbackId,
-      detectedLang: result.detected_language,
-      script: result.script,
-      sentiment: result.sentiment,
-      confidence: result.sentiment_confidence,
-      themes: result.themes,
-      isSarcastic: result.is_sarcastic,
-      containsCodeMix: result.contains_code_mix,
-      rationale: result.rationale,
-      modelUsed: result.modelUsed,
-    },
-  });
+  await prisma.$transaction([
+    prisma.analysis.create({
+      data: {
+        feedbackId,
+        detectedLang: result.detected_language,
+        script: result.script,
+        sentiment: result.sentiment,
+        confidence: result.sentiment_confidence,
+        themes: result.themes,
+        isSarcastic: result.is_sarcastic,
+        containsCodeMix: result.contains_code_mix,
+        rationale: result.rationale,
+        modelUsed: result.modelUsed,
+      },
+    }),
+    prisma.feedback.update({ where: { id: feedbackId }, data: { status: 'completed' } }),
+  ]);
 }
 
 export const createProject = catchAsync<AuthRequest>(async (req, res: Response): Promise<void> => {
   const { name, description } = CreateProjectSchema.parse(req.body);
-  const project = await prisma.project.create({ data: { name, description, userId: req.userId! } });
+  const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const slug = `${baseSlug}-${Date.now().toString(36)}`;
+  const project = await prisma.project.create({ data: { name, description, slug, userId: req.userId! } });
   console.log('[createProject] -> Created project:', project.id);
   res.status(201).json({ success: true, data: project });
 });
@@ -47,7 +52,7 @@ export const submitFeedback = catchAsync<AuthRequest>(async (req, res: Response)
   const project = await prisma.project.findFirst({ where: { id: projectId, userId: req.userId } });
   if (!project) throw new AppError('Project not found', 404);
 
-  const feedback = await prisma.feedback.create({ data: { rawText: text, source: source ?? 'api', projectId } });
+  const feedback = await prisma.feedback.create({ data: { rawText: text, charCount: text.length, source: source ?? 'api', status: 'pending', projectId } });
   console.log('[submitFeedback] -> Running analysis for feedbackId:', feedback.id);
   await runAnalysis(feedback.id, text);
 
@@ -63,7 +68,7 @@ export const batchFeedback = catchAsync<AuthRequest>(async (req, res: Response):
 
   const results = await Promise.allSettled(
     items.map(async (item) => {
-      const feedback = await prisma.feedback.create({ data: { rawText: item.text, source: item.source ?? 'api', projectId } });
+      const feedback = await prisma.feedback.create({ data: { rawText: item.text, charCount: item.text.length, source: item.source ?? 'batch_api', status: 'pending', projectId } });
       await runAnalysis(feedback.id, item.text);
       return feedback.id;
     })
@@ -88,7 +93,8 @@ export const uploadFeedback = catchAsync<AuthRequest>(async (req, res: Response)
 
   const results = await Promise.allSettled(
     rows.map(async (row) => {
-      const feedback = await prisma.feedback.create({ data: { rawText: row.text, source: 'upload', projectId } });
+      const mimeSource = req.file!.mimetype === 'text/csv' ? 'csv_upload' : 'excel_upload';
+      const feedback = await prisma.feedback.create({ data: { rawText: row.text, charCount: row.text.length, source: mimeSource, status: 'pending', projectId } });
       await runAnalysis(feedback.id, row.text);
     })
   );

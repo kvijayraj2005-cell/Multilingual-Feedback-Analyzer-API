@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const SubmitFeedbackSchema = z.object({
   projectId: z.string().uuid(),
   text: z.string().min(1).max(5000),
-  source: z.string().max(50).optional(),
+  source: z.enum(['api', 'batch_api', 'manual']).optional(),
 });
 
 export const BatchFeedbackSchema = z.object({
@@ -12,7 +12,7 @@ export const BatchFeedbackSchema = z.object({
     .array(
       z.object({
         text: z.string().min(1).max(5000),
-        source: z.string().max(50).optional(),
+        source: z.enum(['api', 'batch_api', 'manual']).optional(),
       })
     )
     .min(1)

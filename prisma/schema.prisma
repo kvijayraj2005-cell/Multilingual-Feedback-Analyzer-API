@@ -6,53 +6,359 @@ datasource db {
   provider = "postgresql"
 }
 
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum DetectedLanguage {
+  tamil
+  sinhala
+  english
+  tanglish
+  singlish
+  mixed_other
+  unknown
+}
+
+enum ScriptType {
+  tamil_native
+  sinhala_native
+  latin
+  mixed
+}
+
+enum SentimentLabel {
+  positive
+  negative
+  neutral
+  mixed
+}
+
+enum ThemeLabel {
+  service
+  price
+  quality
+  delivery
+  staff
+  food
+  app_ux
+  billing
+  other
+}
+
+enum FeedbackSource {
+  api
+  batch_api
+  csv_upload
+  excel_upload
+  whatsapp
+  google_reviews
+  facebook
+  manual
+}
+
+enum AnalysisStatus {
+  pending
+  processing
+  completed
+  failed
+  skipped
+}
+
+enum BatchJobStatus {
+  queued
+  processing
+  completed
+  partial
+  failed
+}
+
+enum GeminiModel {
+  gemini_25_flash
+  gemini_25_flash_lite
+  gemini_25_pro
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum AlertSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum ExportFormat {
+  json
+  pdf
+}
+
+// =============================================================================
+// MODELS
+// =============================================================================
+
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  password  String
-  name      String?
+  id       String   @id @default(uuid())
+  email    String   @unique
+  password String
+  name     String?
+  role     UserRole @default(user)
+
+  timezone String @default("Asia/Colombo")
+  locale   String @default("en")
+
   projects  Project[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  apiKeys   ApiKey[]
+  auditLogs AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@map("users")
 }
 
 model Project {
-  id          String     @id @default(uuid())
+  id          String  @id @default(uuid())
   name        String
-  description String?
-  userId      String
-  user        User       @relation(fields: [userId], references: [id])
-  feedbacks   Feedback[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  description String? @db.Text
+  slug        String  @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  defaultLanguage DetectedLanguage @default(english)
+  isActive        Boolean          @default(true)
+  webhookSecret   String?
+
+  feedbacks      Feedback[]
+  reports        Report[]
+  alerts         Alert[]
+  webhookSources WebhookSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([slug])
+  @@map("projects")
 }
 
 model Feedback {
-  id        String    @id @default(uuid())
-  rawText   String    @db.Text
-  source    String    @default("api")
+  id        String  @id @default(uuid())
   projectId String
-  project   Project   @relation(fields: [projectId], references: [id])
-  analysis  Analysis?
-  createdAt DateTime  @default(now())
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  rawText   String @db.Text
+  charCount Int    @default(0)
+
+  source     FeedbackSource @default(api)
+  batchJobId String?
+  batchJob   BatchJob?      @relation(fields: [batchJobId], references: [id])
+  externalId String?
+  submittedAt DateTime      @default(now())
+
+  status   AnalysisStatus @default(pending)
+  analysis Analysis?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([batchJobId])
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+  @@map("feedbacks")
 }
 
 model Analysis {
-  id              String   @id @default(uuid())
-  feedbackId      String   @unique
-  feedback        Feedback @relation(fields: [feedbackId], references: [id])
-  detectedLang    String
-  script          String
-  sentiment       String
-  confidence      Float
-  themes          String[]
-  isSarcastic     Boolean  @default(false)
-  containsCodeMix Boolean  @default(false)
-  rationale       String?  @db.Text
-  modelUsed       String   @default("gemini-2.5-flash")
-  createdAt       DateTime @default(now())
+  id         String   @id @default(uuid())
+  feedbackId String   @unique
+  feedback   Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  detectedLang    DetectedLanguage
+  script          ScriptType
+  containsCodeMix Boolean @default(false)
+
+  sentiment   SentimentLabel
+  confidence  Float
+  isSarcastic Boolean @default(false)
+
+  themes ThemeLabel[]
+
+  rationale    String?     @db.Text
+  modelUsed    GeminiModel @default(gemini_25_flash)
+  promptHash   String?
+  latencyMs    Int?
+  inputTokens  Int?
+  outputTokens Int?
+  retryCount   Int         @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([feedbackId])
   @@index([sentiment])
   @@index([detectedLang])
+  @@index([confidence])
+  @@index([createdAt])
+  @@map("analyses")
+}
+
+model BatchJob {
+  id        String @id @default(uuid())
+  projectId String
+  userId    String
+
+  fileName  String
+  fileSize  Int
+  mimeType  String
+  totalRows Int
+
+  status        BatchJobStatus @default(queued)
+  processedRows Int            @default(0)
+  successCount  Int            @default(0)
+  failedCount   Int            @default(0)
+  skippedCount  Int            @default(0)
+
+  errorSummary  String? @db.Text
+  failureReason String?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  feedbacks Feedback[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+  @@map("batch_jobs")
+}
+
+model Report {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+  isAllTime   Boolean  @default(false)
+
+  data          Json
+  feedbackCount Int
+
+  lastExportedAt     DateTime?
+  lastExportedFormat ExportFormat?
+
+  generatedAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([periodStart, periodEnd])
+  @@map("reports")
+}
+
+model Alert {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  feedbackId String?
+
+  severity AlertSeverity
+  title    String
+  message  String        @db.Text
+
+  triggerType  String
+  triggerValue Json?
+
+  notifiedAt  DateTime?
+  notifiedVia String?
+  isRead      Boolean   @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([severity])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+model ApiKey {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  keyHash   String   @unique
+  keyPrefix String
+  scopes    String[]
+
+  lastUsedAt   DateTime?
+  requestCount Int       @default(0)
+
+  isActive  Boolean   @default(true)
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([keyHash])
+  @@map("api_keys")
+}
+
+model WebhookSource {
+  id        String  @id @default(uuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  platform    String
+  endpointUrl String?
+  secret      String
+  isActive    Boolean @default(true)
+
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+
+  totalReceived  Int       @default(0)
+  lastReceivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([platform])
+  @@map("webhook_sources")
+}
+
+model AuditLog {
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action     String
+  resourceId String?
+  resource   String?
+
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

@@ -88,35 +88,41 @@ async function callModel(modelName: string, text: string): Promise<FeedbackAnaly
   return FeedbackAnalysisSchema.parse(JSON.parse(raw));
 }
 
-export async function analyzeText(text: string): Promise<FeedbackAnalysis & { modelUsed: string }> {
-  let modelUsed = env.GEMINI_MODEL;
-  console.log('[analyzeText] -> Starting analysis, model:', modelUsed, 'textLen:', text.length);
+const MODEL_ENUM: Record<string, 'gemini_25_flash' | 'gemini_25_flash_lite' | 'gemini_25_pro'> = {
+  'gemini-2.5-flash':      'gemini_25_flash',
+  'gemini-2.5-flash-lite': 'gemini_25_flash_lite',
+  'gemini-2.5-pro':        'gemini_25_pro',
+};
+
+export async function analyzeText(text: string): Promise<FeedbackAnalysis & { modelUsed: 'gemini_25_flash' | 'gemini_25_flash_lite' | 'gemini_25_pro' }> {
+  let modelName = env.GEMINI_MODEL;
+  console.log('[analyzeText] -> Starting analysis, model:', modelName, 'textLen:', text.length);
 
   try {
-    const result = await callModel(modelUsed, text);
+    const result = await callModel(modelName, text);
 
     if (result.sentiment_confidence < 0.6) {
       console.log('[analyzeText] -> Low confidence, retrying with Pro. confidence:', result.sentiment_confidence);
       try {
-        modelUsed = 'gemini-2.5-pro';
-        const retried = await callModel(modelUsed, text);
+        modelName = 'gemini-2.5-pro';
+        const retried = await callModel(modelName, text);
         console.log('[analyzeText] -> Pro retry succeeded');
-        return { ...retried, modelUsed };
+        return { ...retried, modelUsed: MODEL_ENUM[modelName] ?? 'gemini_25_pro' };
       } catch (proErr) {
         console.warn('[analyzeText] -> Pro retry failed, using Flash result:', (proErr as Error).message);
-        return { ...result, modelUsed: env.GEMINI_MODEL };
+        return { ...result, modelUsed: MODEL_ENUM[env.GEMINI_MODEL] ?? 'gemini_25_flash' };
       }
     }
 
     console.log('[analyzeText] -> Completed. sentiment:', result.sentiment, 'confidence:', result.sentiment_confidence);
-    return { ...result, modelUsed };
+    return { ...result, modelUsed: MODEL_ENUM[modelName] ?? 'gemini_25_flash' };
   } catch (err: unknown) {
     const status = (err as { status?: number })?.status;
     if (status === 429) {
       console.warn('[analyzeText] -> Rate limited, falling back to Flash-Lite');
-      modelUsed = 'gemini-2.5-flash-lite';
-      const result = await callModel(modelUsed, text);
-      return { ...result, modelUsed };
+      modelName = 'gemini-2.5-flash-lite';
+      const result = await callModel(modelName, text);
+      return { ...result, modelUsed: MODEL_ENUM[modelName] ?? 'gemini_25_flash_lite' };
     }
     console.error('[analyzeText] -> Failed:', (err as Error).message);
     throw new AppError('Gemini analysis failed', 502);
