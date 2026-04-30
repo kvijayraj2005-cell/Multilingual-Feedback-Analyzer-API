@@ -460,27 +460,3 @@ docker run -p 3000:3000 --env-file .env feedback-analyzer
 
 ---
 
-## 👤 Author
-
-**Nivash**  
-Final Year — Physical Science & ICT  
-University of Sri Jayewardenepura
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat-square&logo=linkedin)](https://linkedin.com/in/YOUR_PROFILE)
-[![GitHub](https://img.shields.io/badge/GitHub-Follow-181717?style=flat-square&logo=github)](https://github.com/YOUR_USERNAME)
-
----
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE) for details.
-
----
-
-<div align="center">
-
-**If this project helped you, consider giving it a ⭐**
-
-*Built with research, not tutorials.*
-
-</div>
